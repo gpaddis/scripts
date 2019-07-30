@@ -9,9 +9,10 @@ import sys
 
 from git import Repo
 
-try:
-    repo = Repo(os.getcwd())
-    assert not repo.bare
-except:
-    print("Not a valid git repository.")
-    sys.exit(1)
+if __name__ == "__main__":
+    try:
+        repo = Repo(os.getcwd())
+        assert not repo.bare
+    except:
+        print("Not a valid git repository.")
+        sys.exit(1)
