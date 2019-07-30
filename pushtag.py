@@ -18,7 +18,7 @@ def get_latest_commit(repo, branch="master"):
     commit = repo.commit(branch)
     return {
         "id": commit,
-        "author": commit.author,
+        "author": commit.author.name,
         "date": datetime.fromtimestamp(commit.committed_date).strftime("%d/%m/%Y, %H:%M:%S"),
         "message": commit.message
     }
@@ -32,5 +32,5 @@ if __name__ == "__main__":
         print("Not a valid git repository.")
         sys.exit(1)
 
-    last_master_commit = get_latest_commit(repo, "master")
+    last_master_commit = get_latest_commit(repo)
     print(last_master_commit)
