@@ -3,7 +3,7 @@
 # and output the url and the response times.
 #
 # Example usage:
-# benchmarkUrl.sh "https://www.example.com/"
+# benchmark-url.sh "https://www.example.com/"
 
 url="$1"
 
