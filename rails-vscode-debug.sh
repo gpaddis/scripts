@@ -10,7 +10,7 @@ do
 	    echo "Check out this link for detailed installation instructions:"
         echo "https://github.com/microsoft/vscode-recipes/tree/master/debugging-Ruby-on-Rails"
         exit 1
-	fi
+    fi
 done
 
 BUNDLE_PATH=`rbenv which bundle`
