@@ -15,7 +15,7 @@ done
 
 BUNDLE_PATH=`rbenv which bundle`
 RSPEC_PATH=`rbenv which rspec`
-RBDEBUG_IDE_PATH=`bundle info ruby-debug-ide --path`
+RBDEBUG_IDE_PATH=`bundle info ruby-debug-ide --path | tail -n 1`
 
 cat << EOF
 {
