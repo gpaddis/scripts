@@ -9,3 +9,4 @@ repository_root=`git rev-parse --show-toplevel`
 branch_directory=`echo $branch_name | sed 's/[^a-zA-Z0-9]/-/g'`
 worktree_directory=$repository_root/../$(basename $repository_root)-$branch_directory
 git worktree add $worktree_directory $branch_name || git worktree add $worktree_directory -b $branch_name
+echo "Worktree added under $worktree_directory"
