@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Commit a fixup and autosquash.
+if git diff --staged --quiet; then
+    echo "No staged changes found. Stage your changes first."
+    exit 1
+fi
+
+commit=$(git log --oneline | \
+    fzf --preview 'git show --color=always {1}' \
+        --preview-window=right:60% \
+        --height=50% \
+        --bind='ctrl-p:toggle-preview' \
+        --header='Select commit to fixup (Ctrl-P to toggle preview)' | \
+    cut -d' ' -f1)
+
+if [ -z "$commit" ]; then
+    echo "No commit selected, aborting fixup"
+    exit 1
+fi
+
+git commit --fixup $commit
+git rebase -i $commit~ --autosquash
