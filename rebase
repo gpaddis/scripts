@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Rebase interactively on the parent commit of the one selected.
+commit=$(git log --oneline --decorate --graph --color=always | \
+    fzf --ansi | \
+    cut -d' ' -f2)
+
+git rebase -i $commit~
