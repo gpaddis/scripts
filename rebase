@@ -5,4 +5,9 @@ commit=$(git log --oneline --decorate --graph --color=always | \
     fzf --ansi | \
     cut -d' ' -f2)
 
+if [ -z "$commit" ]; then
+    echo "No commit selected, aborting rebase"
+    exit 1
+fi
+
 git rebase -i $commit~
