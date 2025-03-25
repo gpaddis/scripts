@@ -9,7 +9,7 @@ fi
 commit=$(git log --oneline --color=always | \
     fzf --preview 'git show --color=always {1}' \
         --preview-window=right:60% \
-        --height=50% \
+        --height=90% \
         --bind='ctrl-p:toggle-preview' \
         --header='Select commit to fixup (Ctrl-P to toggle preview)' \
         --ansi | \
