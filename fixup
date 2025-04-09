@@ -21,4 +21,4 @@ if [ -z "$commit" ]; then
 fi
 
 git commit --fixup $commit
-git rebase -i $commit~ --autosquash
+git rebase -i $commit~ --autosquash --autostash
