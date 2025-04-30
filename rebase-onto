@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -ex
+
+# Rebase onto a given branch on the parent commit of the one selected.
+branch=$(git branch | \
+    fzf --ansi | \
+    xargs) # Trim the whitespace
+
+commit=$(git log --oneline --decorate --graph --color=always | \
+    fzf --ansi | \
+    cut -d' ' -f2)
+
+if [ -z "$branch" ]; then
+    echo "No branch selected, aborting rebase"
+    exit 1
+fi
+
+if [ -z "$commit" ]; then
+    echo "No commit selected, aborting rebase"
+    exit 1
+fi
+
+git rebase --onto $branch $commit~
