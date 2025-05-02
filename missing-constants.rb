@@ -1,0 +1,336 @@
+#!/usr/bin/env rails runner
+# frozen_string_literal: true
+
+# Scans all Ruby files in the Rails repository, collects all referenced constants, and checks if they are defined
+# according to Rails autoloading and Ruby constant resolution rules. Outputs missing constants to missing-constants.txt.
+
+require "parser/current"
+
+# Load Rails application constants
+Rails.application.eager_load!
+
+# List of constants or patterns to ignore during scanning
+IGNORE_CONSTANTS = [
+  /::ActionController$/,
+  /::ActiveJob$/,
+  /::ActiveRecord$/,
+  /::Date$/,
+  /::Devise$/,
+  /::ENV$/,
+  /::Faker::/,
+  /::Flipper$/,
+  /::I18n$/,
+  /::JSON$/,
+  /::MiniTest$/,
+  /::Rails$/,
+  /::RecordNotFound$/,
+  /::Redis$/,
+  /::RSpec$/,
+  /::SharedTests$/,
+  /::StringIO$/,
+  /::Time$/,
+  /::User$/,
+  /ActiveSupport/,
+  /ConcernSharedTests$/,
+  /Helpers$/,
+  /MiniTest::Context$/,
+  /MockProvider$/,
+  /MockHelper$/,
+  /Rails::Console$/,
+  /SimpleCov$/,
+  /UnknownModelError$/
+].freeze
+
+# Cache resolved constants to avoid repeated lookups
+CONSTANT_CACHE = {}.compare_by_identity
+
+# Cache for file paths to improve performance
+PATH_CACHE = {}.compare_by_identity
+
+class ConstantScanner
+  # @return [String] repository root path
+  attr_reader :repo_root
+
+  # @param repo_root [String] path to the repository root
+  def initialize(repo_root = nil)
+    @repo_root = repo_root || Rails.root.to_s
+  end
+
+  # Main entry point for the script
+  def scan_all_files
+    ruby_files = Dir.glob(File.join(repo_root, "**", "*.rb"))
+    missing_constants = collect_missing_constants(ruby_files)
+
+    write_results(missing_constants)
+  end
+
+  private
+
+  # Collect missing constants from all Ruby files
+  # @param ruby_files [Array<String>] list of Ruby file paths
+  # @return [Hash{String => String}] map of file:line to constant name
+  def collect_missing_constants(ruby_files)
+    missing_map = {}
+
+    ruby_files.each do |file|
+      process_file(file, missing_map)
+    end
+
+    # Post-process to keep only the most specific constant per line
+    grouped = group_by_line_and_specificity(missing_map)
+
+    # Filter out ignored constants
+    filter_ignored_constants(grouped)
+  end
+
+  # Process a single Ruby file to extract and check constants
+  # @param file [String] path to Ruby file
+  # @param missing_map [Hash] accumulator for missing constants
+  def process_file(file, missing_map)
+    constants = extract_constants_with_context(file)
+    return if constants.empty?
+
+    relative_path = get_relative_path(file)
+
+    constants.each do |const|
+      fq_const, line, context_stack = const[:fq_const], const[:line], const[:context_stack]
+      next if fq_const.nil? || fq_const.empty?
+
+      # Try all possible resolutions, from most specific to least
+      possible_constants = possible_constant_resolutions(fq_const, context_stack)
+
+      unless constant_defined_any?(possible_constants)
+        key = "#{relative_path}:#{line}"
+        missing_map[key] = fq_const
+      end
+    end
+  end
+
+  # Extract constants with their context from a Ruby file
+  # @param file [String] path to the Ruby file
+  # @return [Array<Hash>] list of { fq_const: String, line: Integer, context_stack: Array<String> }
+  def extract_constants_with_context(file)
+    buffer = Parser::Source::Buffer.new(file)
+    begin
+      buffer.source = File.read(file)
+    rescue => e
+      warn "[WARN] Could not read #{file}: #{e}"
+      return []
+    end
+
+    parser = Parser::CurrentRuby.new
+    begin
+      ast = parser.parse(buffer)
+    rescue => e
+      warn "[WARN] Could not parse #{file}: #{e}"
+      return []
+    end
+
+    return [] unless ast
+
+    constants = []
+    traverse_ast(ast, [], constants)
+    constants
+  end
+
+  # Recursively traverse AST to collect referenced constants with context
+  # @param node [Parser::AST::Node] current AST node
+  # @param context_stack [Array<String>] current nesting context
+  # @param constants [Array<Hash>] accumulator for found constants
+  # @param parent [Parser::AST::Node, nil] parent node for context
+  def traverse_ast(node, context_stack, constants, parent = nil)
+    return unless node.is_a?(Parser::AST::Node)
+
+    case node.type
+    when :class, :module
+      name = constant_name_from_node(node.children[0])
+
+      if name
+        context_stack.push(name)
+        # Process children with updated context
+        node.children.each_with_index do |child, idx|
+          # Skip name and parent class nodes
+          next if idx == 0 || (node.type == :class && idx == 1)
+          traverse_ast(child, context_stack, constants, node)
+        end
+        context_stack.pop
+      else
+        # No name, just process children normally
+        node.children.each { |child| traverse_ast(child, context_stack, constants, node) }
+      end
+
+    when :const
+      # Only collect if not the name of a class/module definition
+      # and not a parent class reference
+      if !(parent && (parent.type == :class || parent.type == :module) && parent.children[0] == node) &&
+          !(parent && parent.type == :class && parent.children[1] == node)
+
+        fq_const = fq_constant_name(node, context_stack)
+        constants << {
+          fq_const: fq_const,
+          line: node.location.expression.line,
+          context_stack: context_stack.dup
+        }
+      end
+
+      # Process children
+      node.children.each { |child| traverse_ast(child, context_stack, constants, node) }
+
+    else
+      # For all other node types, just process children
+      node.children.each { |child| traverse_ast(child, context_stack, constants, node) }
+    end
+  end
+
+  # Returns the constant name from a node (e.g. :const or :cbase)
+  # @param node [Parser::AST::Node]
+  # @return [String, nil]
+  def constant_name_from_node(node)
+    return nil unless node.is_a?(Parser::AST::Node)
+
+    if node.type == :const
+      parent = constant_name_from_node(node.children[0])
+      name = node.children[1].to_s
+      parent ? "#{parent}::#{name}" : name
+    elsif node.type == :cbase
+      "" # root (::)
+    else
+      nil
+    end
+  end
+
+  # Returns the fully qualified constant name as a string
+  # @param node [Parser::AST::Node] constant node
+  # @param context_stack [Array<String>] current nesting context
+  # @return [String] fully qualified constant name
+  def fq_constant_name(node, context_stack)
+    names = []
+    cur = node
+
+    # Build the constant path
+    while cur&.type == :const
+      names.unshift(cur.children[1].to_s)
+      cur = cur.children[0]
+    end
+
+    if cur.nil? || cur.type == :cbase
+      # nil parent (bare constant) or :: prefix (root constant)
+      names.join("::").prepend((cur&.type == :cbase) ? "::" : "")
+    else
+      # relative, resolve in context
+      context = context_stack.join("::")
+      context.empty? ? names.join("::") : "#{context}::#{names.join("::")}"
+    end
+  end
+
+  # Check if any of the possible constant names is defined
+  # @param constants [Array<String>] possible constant names
+  # @return [Boolean] true if any constant is defined
+  def constant_defined_any?(constants)
+    constants.any? { |c| constant_defined?(c) }
+  end
+
+  # Check if a constant is defined according to Rails/Ruby resolution rules
+  # @param fq_const [String] fully qualified constant name
+  # @return [Boolean] true if constant is defined
+  def constant_defined?(fq_const)
+    # Use cache to avoid repeated lookups
+    return CONSTANT_CACHE[fq_const] if CONSTANT_CACHE.key?(fq_const)
+
+    result = begin
+      if fq_const.start_with?("::")
+        # Absolute constant path
+        Object.const_get(fq_const[2..])
+      else
+        # Try to resolve constant normally
+        fq_const.split("::").inject(Object) { |mod, name| mod.const_get(name) }
+      end
+      true
+    rescue NameError
+      false
+    end
+
+    CONSTANT_CACHE[fq_const] = result
+  end
+
+  # Generate all possible constant resolutions as Ruby would try
+  # @param fq_const [String] constant reference
+  # @param context_stack [Array<String>] nesting context
+  # @return [Array<String>] all possible constant names to try
+  def possible_constant_resolutions(fq_const, context_stack)
+    # If already absolute (::), only try that
+    return [fq_const] if fq_const.start_with?("::")
+
+    # Otherwise, walk up the context stack
+    names = fq_const.split("::")
+    resolutions = []
+
+    # Try each nesting level, from most specific to least
+    context_stack.size.downto(0) do |i|
+      prefix = context_stack[0, i].join("::")
+
+      resolutions << if prefix.empty?
+        names.join("::")
+      else
+        "#{prefix}::#{names.join("::")}"
+      end
+    end
+
+    # Always try absolute (root) as last resort
+    absolute_path = "::#{names.join("::")}"
+    resolutions << absolute_path unless resolutions.include?(absolute_path)
+
+    resolutions.uniq
+  end
+
+  # Group missing constants by file:line and keep the most specific one
+  # @param missing_map [Hash] map of file:line to constant names
+  # @return [Hash] processed map with most specific constants
+  def group_by_line_and_specificity(missing_map)
+    result = {}
+
+    missing_map.each do |key, const|
+      # Only update if the entry doesn't exist or the new constant is more specific
+      if !result[key] || const.split("::").count > result[key].split("::").count
+        result[key] = const
+      end
+    end
+
+    result
+  end
+
+  # Filter out constants matching the ignore patterns
+  # @param grouped [Hash] grouped constants by file:line
+  # @return [Hash] filtered constants
+  def filter_ignored_constants(grouped)
+    grouped.reject do |_, const|
+      IGNORE_CONSTANTS.any? { |pattern| const.match?(pattern) }
+    end
+  end
+
+  # Get relative path from repo root
+  # @param file [String] absolute file path
+  # @return [String] path relative to repo root
+  def get_relative_path(file)
+    PATH_CACHE[file] ||= file.sub("#{repo_root}/", "")
+  end
+
+  # Write results to output file
+  # @param missing_constants [Hash] map of file:line to constant name
+  def write_results(missing_constants)
+    output_file = File.join(repo_root, "missing-constants.txt")
+
+    File.open(output_file, "w") do |f|
+      missing_constants.each do |key, const|
+        f.puts("#{key} #{const}")
+      end
+    end
+
+    puts "Found #{missing_constants.size} missing constants. Results written to #{output_file}"
+  end
+end
+
+# Run the script when executed directly
+if $PROGRAM_NAME == __FILE__
+  ConstantScanner.new.scan_all_files
+end
