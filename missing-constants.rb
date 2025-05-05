@@ -238,13 +238,7 @@ class ConstantScanner
     return CONSTANT_CACHE[fq_const] if CONSTANT_CACHE.key?(fq_const)
 
     result = begin
-      if fq_const.start_with?("::")
-        # Absolute constant path
-        Object.const_get(fq_const[2..])
-      else
-        # Try to resolve constant normally
-        fq_const.split("::").inject(Object) { |mod, name| mod.const_get(name) }
-      end
+      fq_const.constantize
       true
     rescue NameError
       false
@@ -315,22 +309,17 @@ class ConstantScanner
     PATH_CACHE[file] ||= file.sub("#{repo_root}/", "")
   end
 
-  # Write results to output file
+  # Write results to STDOUT.
   # @param missing_constants [Hash] map of file:line to constant name
   def write_results(missing_constants)
-    output_file = File.join(repo_root, "missing-constants.txt")
+    puts "Found #{missing_constants.size} missing constants:"
+    puts ""
 
-    File.open(output_file, "w") do |f|
-      missing_constants.each do |key, const|
-        f.puts("#{key} #{const}")
-      end
+    missing_constants.each do |key, const|
+      puts("#{key} #{const}")
     end
-
-    puts "Found #{missing_constants.size} missing constants. Results written to #{output_file}"
   end
 end
 
 # Run the script when executed directly
-if $PROGRAM_NAME == __FILE__
-  ConstantScanner.new.scan_all_files
-end
+ConstantScanner.new.scan_all_files
