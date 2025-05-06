@@ -61,7 +61,7 @@ class ConstantScanner
     ruby_files = Dir.glob(File.join(repo_root, "**", "*.rb"))
     missing_constants = collect_missing_constants(ruby_files)
 
-    write_results(missing_constants)
+    output_missing_constants(missing_constants)
   end
 
   private
@@ -311,7 +311,7 @@ class ConstantScanner
 
   # Write results to STDOUT.
   # @param missing_constants [Hash] map of file:line to constant name
-  def write_results(missing_constants)
+  def output_missing_constants(missing_constants)
     puts "Found #{missing_constants.size} missing constants:"
     puts ""
 
