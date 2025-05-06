@@ -21,7 +21,7 @@ IGNORE_CONSTANTS = [
   /::Flipper$/,
   /::I18n$/,
   /::JSON$/,
-  /::MiniTest$/,
+  /MiniTest$/,
   /::Rails$/,
   /::RecordNotFound$/,
   /::Redis$/,
@@ -32,6 +32,7 @@ IGNORE_CONSTANTS = [
   /::User$/,
   /ActiveSupport/,
   /ConcernSharedTests$/,
+  /CypressOnRails/,
   /Helpers$/,
   /MiniTest::Context$/,
   /MockProvider$/,
@@ -293,12 +294,13 @@ class ConstantScanner
     result
   end
 
-  # Filter out constants matching the ignore patterns
+  # Filter out constants matching the ignore patterns and UPPERCASE constants
   # @param grouped [Hash] grouped constants by file:line
   # @return [Hash] filtered constants
   def filter_ignored_constants(grouped)
     grouped.reject do |_, const|
-      IGNORE_CONSTANTS.any? { |pattern| const.match?(pattern) }
+      IGNORE_CONSTANTS.any? { |pattern| const.match?(pattern) } ||
+        const.split('::').last.match?(/^[A-Z0-9_]+$/)
     end
   end
 
