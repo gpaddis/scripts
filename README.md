@@ -116,6 +116,16 @@ Creates a git worktree in a directory above the current repository, named after 
 worktree-add feature-branch  # Creates ../repo-name-feature-branch
 ```
 
+### retry
+
+Continuously executes the command passed to it in an infinite loop. Useful for retrying commands that might fail intermittently.
+
+**Usage:**
+
+```bash
+retry some-command arg1 arg2  # Runs 'some-command arg1 arg2' repeatedly
+```
+
 ## Dependencies
 
 The file `requirements.txt` contains the libraries required by the Python scripts.
